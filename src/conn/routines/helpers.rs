@@ -2,15 +2,18 @@
 
 use std::sync::Arc;
 
+use bytes::Bytes;
 use mysql_common::{
     constants::MAX_PAYLOAD_LEN,
     io::{ParseBuf, ReadMysqlExt},
     packets::{ComStmtSendLongData, LocalInfilePacket},
     value::Value,
 };
-use tokio::io::AsyncReadExt;
+use tokio::{io::AsyncReadExt, sync::mpsc::UnboundedReceiver};
 
-use crate::{queryable::Protocol, Conn, DriverError, Error};
+use crate::{queryable::Protocol, Conn, DriverError, Error, Result};
+
+use super::{load_data::LoadDataRoutine, Routine};
 
 impl Conn {
     /// Helper, that sends all `Value::Bytes` in the given list of paramenters as long data.
@@ -118,6 +121,26 @@ impl Conn {
         let columns = self.read_column_defs(column_count as usize).await?;
         let meta = P::result_set_meta(Arc::from(columns.into_boxed_slice()));
         self.set_pending_result(Some(meta))?;
+        Ok(())
+    }
+
+    pub async fn load_data<'a, E>(
+        &'a mut self,
+        exec: E,
+        recv: UnboundedReceiver<Bytes>,
+    ) -> Result<()>
+    where
+        E: AsRef<str> + Send + Sync + 'a,
+    {
+        let mut routine = LoadDataRoutine::new(exec.as_ref().as_bytes(), recv);
+
+        self.inner.disconnected = true;
+        if let Err(e) = routine.call(&mut *self).await {
+            return Err(e);
+        } else {
+            self.inner.disconnected = false;
+        }
+
         Ok(())
     }
 }

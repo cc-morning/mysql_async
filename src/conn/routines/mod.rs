@@ -5,6 +5,7 @@ use crate::Conn;
 pub use self::{exec::*, next_set::*, ping::*, prepare::*, query::*, reset::*};
 
 mod exec;
+mod load_data;
 mod next_set;
 mod ping;
 mod prepare;
